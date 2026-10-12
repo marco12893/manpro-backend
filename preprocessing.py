@@ -26,6 +26,50 @@ FILES = {
 MAP_STATUS = {
     "Selesai": 0,
     "Dalam Pengerjaan": 1,
+    "Baru" : 2,
+}
+
+try:
+  stop_words_en = set(stopwords.words("english"))
+except Exception:
+  stop_words_en = set()
+
+keep_words = {
+    "tidak",
+    "bukan",
+    "belum",
+    "tanpa",
+    "no",
+    "not",
+    "nor",
+    "only",
+    "akhir",
+    "baru",
+    "diri",
+    "lanjut",
+    "keluar",
+    "awal",
+    "lalu",
+    "masalah",
+    "hari",
+    "dua",
+    "tiga",
+    "satu",
+    "pertama",
+    "kedua",
+    "luar",
+    "tengah",
+    "besar",
+    "kecil",
+    "tinggi",
+    "lama",
+    "up",
+    "out",
+    "off",
+    "over",
+    "under",
+    "same",
+    "all",
 }
 
 stop_id = set(StopWordRemoverFactory().get_stop_words()) | {
@@ -69,6 +113,46 @@ NORMALISASI = {
     "pemesanan": "pesan",  # Sastrawi -> "mesan"
     "pemetaan": "peta",  # Sastrawi -> "meta"
     "pengecekan": "cek",  # Sastrawi -> "kece"
+    "application": "aplikasi",
+    "app": "aplikasi",
+    "apps": "aplikasi",
+    "mobile application": "aplikasi mobile",
+    "mobile app": "aplikasi mobile",
+    "web application": "aplikasi web",
+    "web app": "aplikasi web",
+    "web": "website",
+    "websites": "website",
+    "web based": "berbasis web",
+    "berbasis website": "berbasis web",
+    "system": "sistem",
+    "systems": "sistem",
+    "information system": "sistem informasi",
+    "monitoring": "pemantauan",
+    "tracking": "pelacakan",
+    "management": "manajemen",
+    "inventory": "inventaris",
+    "expert system": "sistem pakar",
+    "recommender system": "sistem rekomendasi",
+    "recommendation system": "sistem rekomendasi",
+    "artificial intelligence": "ai",
+    "kecerdasan buatan": "ai",
+    "pencarian": "cari",
+    "pembelajaran": "ajar",
+    "pembuatan": "buat",
+    "perancangan": "rancang",
+    "penerapan": "terap",
+    "implementasi": "terap",
+    "analisis": "analisis",
+    "analisa": "analisis",
+    "analysis": "analisis",
+    "klasifikasi": "klasifikasi",
+    "prediksi": "prediksi",
+    "forecasting": "prediksi",
+    "deteksi": "deteksi",
+    "pengenalan": "pengenalan",
+    "optimalisasi": "optimalisasi",
+    "rekomendasi": "rekomendasi",
+    "sentimen": "sentimen",
 }
 
 JANGAN_STEM = {
@@ -80,24 +164,38 @@ JANGAN_STEM = {
     "babai",
     "tolis",
     "pengadaan",
+    "ai",
+    "cnn",
+    "rnn",
+    "lstm",
+    "svm",
+    "knn",
+    "nlp",
+    "llm",
+    "yolo",
+    "pso",
+    "saw",
+    "arima",
 }
 
 stemmer = StemmerFactory().create_stemmer()
 
 
 def preprocess(judul):
+    # biar ga ada nilai kosong
+    t = "" if judul is None else str(judul)
     t = judul.lower()
 
     t = re.sub(r"(?<=\w)[*'’](?=\w)", "", t)
     t = re.sub(r"\b([a-z0-9])-(?=\w)", r"\1", t)
-
+    t = re.sub(r"[\-\u2013\u2014/]", " ", t)
     t = re.sub(r"[^a-z0-9\s]", " ", t)
     t = re.sub(r"\s+", " ", t)
 
     tokens = t.split()
     tokens = [w for w in tokens if not w.isdigit()]
     tokens = [NORMALISASI.get(w, w) for w in tokens]
-    tokens = [w for w in tokens if w not in STOPWORDS and len(w) > 1]
+    tokens = [w for w in tokens if w not in STOPWORDS and (len(w) > 1 or w == "r")]
     tokens = [w if w in JANGAN_STEM else stemmer.stem(w) for w in tokens]
 
     return " ".join(tokens)
@@ -137,7 +235,7 @@ def proses_file(file, jurusan):
         )
 
     df = df.rename(columns={"periode_sia": "periode"})
-    df = df.drop(columns="periode", errors="ignore")
+    # df = df.drop(columns="periode", errors="ignore")
 
     if "unit" in df.columns:
         df = df.rename(columns={"unit": "jurusan"})
@@ -145,7 +243,33 @@ def proses_file(file, jurusan):
         df["jurusan"] = jurusan
 
     df["jurusan"] = df["jurusan"].replace("Sistem Informasi", "Sistem Informasi Bisnis")
-
+    
+    def get_period_weight(val):
+        v = str(val).lower()
+        if "genap" in v:
+            return 2
+        elif "gasal" in v:
+            return 1
+        return 0
+    
+    # Hapus duplicate entry utk NRP sama (ambil yg terbaru)
+    if "tahun" in df.columns:
+        df["tahun"] = pd.to_numeric(df["tahun"], errors="coerce").fillna(0)
+        periode_col = "periode" if "periode" in df.columns else None
+        df["_periode_weight"] = (
+            df[periode_col].apply(get_period_weight) if periode_col else 0
+        )
+        df = df.sort_values(by=["tahun", "_periode_weight"], kind="stable")
+        
+    dup_mask = df.duplicated(subset=["nrp"], keep="last")
+    df = df[~dup_mask].drop(
+        columns=["_periode_weight", "periode"], errors="ignore"
+    ).reset_index(drop=True)
+    
+    print(
+        f"Jumlah data setelah duplikat dibersihkan: {len(df)}"
+    )
+    
     # Pembimbing -> pembimbing_1 & pembimbing_2 ("|" atau ";")
     # Jika hanya 1 pembimbing -> pembimbing_2 kosong
     pemb = df["pembimbing"].str.split(r"\s*[|;]\s*", expand=True)
