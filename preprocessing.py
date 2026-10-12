@@ -27,6 +27,8 @@ MAP_STATUS = {
     "Selesai": 0,
     "Dalam Pengerjaan": 1,
     "Baru" : 2,
+    "Yudisium UTS" : 3,
+    "Yudisium UAS" : 4
 }
 
 try:
@@ -153,6 +155,7 @@ NORMALISASI = {
     "optimalisasi": "optimalisasi",
     "rekomendasi": "rekomendasi",
     "sentimen": "sentimen",
+    "peramalan" : "prediksi"
 }
 
 JANGAN_STEM = {
@@ -184,7 +187,7 @@ stemmer = StemmerFactory().create_stemmer()
 def preprocess(judul):
     # biar ga ada nilai kosong
     t = "" if judul is None else str(judul)
-    t = judul.lower()
+    t = t.lower()
 
     t = re.sub(r"(?<=\w)[*'’](?=\w)", "", t)
     t = re.sub(r"\b([a-z0-9])-(?=\w)", r"\1", t)
@@ -307,8 +310,6 @@ def proses_file(file, jurusan):
     output = DATA_DIR / file.replace(".csv", "_clean.csv")
     df[kolom].to_csv(output, index=False)
     print("\nUkuran data akhir:", df[kolom].shape)
-    print("Tersimpan ke", output)
-
 
 if __name__ == "__main__":
     for file, jurusan in FILES.items():
